@@ -1,0 +1,279 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <div class="kotpovar">
+        <img src="static/images/kot-povar.png" alt="Котенок-поваренок" width="500" height="500">
+    </div>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Поиск рецептов</title>
+    <link rel="stylesheet" href="/static/lightTheme.css" id="themeStyle">
+
+    <!-- Стили -->
+    <style>
+        /* Основные стили */
+        body {
+            font-family: Arial, sans-serif;
+            margin: 0;
+            padding: 0;
+        }
+
+        header {
+            display: flex;
+            justify-content: flex-end;
+            padding: 10px;
+        }
+
+        h1 {
+            text-align: center;
+            margin-top: 20px;
+        }
+
+        .input-section {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            gap: 10px;
+            margin: 20px;
+        }
+
+        .input-section input, .input-section button {
+            padding: 10px;
+            font-size: 16px;
+        }
+
+        ul {
+            list-style-type: none;
+            padding: 0;
+        }
+
+        .info-container {
+            margin: 20px auto;
+            max-width: 600px;
+            padding: 15px;
+            border: 1px solid #ccc;
+            border-radius: 5px;
+            display: none;
+        }
+
+        /* Улучшенная полоска загрузки */
+        .loading-container {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 8px; /* Увеличена высота */
+            background-color: #e0e0e0;
+            z-index: 9999;
+            overflow: hidden;
+            border-radius: 4px;
+            box-shadow: 0 2px 5px rgba(0, 0, 0, 0.2);
+        }
+
+        .loading-bar {
+            width: 0;
+            height: 100%;
+            background: linear-gradient(90deg, #4caf50, #8bc34a);
+            animation: loading-animation 1.5s infinite;
+            border-radius: 4px;
+        }
+
+        @keyframes loading-animation {
+            0% { transform: translateX(-100%); }
+            50% { transform: translateX(0); }
+            100% { transform: translateX(100%); }
+        }
+
+        .loading-container.active {
+            display: block;
+        }
+    </style>
+</head>
+<body>
+    <div>
+        <header>
+            <button id="changeTheme" onclick="changeTheme()">🌗</button>
+        </header>
+
+        <h1>Поиск рецептов по ингредиентам</h1>
+
+        <!-- Поле ввода и кнопки -->
+        <div class="input-section">
+            <input type="text" id="ingredientInput" placeholder="Введите продукт" onkeypress="handleEnter(event)">
+            <button id="addButton" onclick="addIngredient()">Добавить</button>
+            <button id="refreshButton" onclick="window.location.reload();">Сброс</button>
+        </div>
+
+        <!-- Сообщение о статусе -->
+        <p id="statusMessage"></p>
+
+        <!-- Список ингредиентов -->
+        <ul id="ingredientList"></ul>
+
+        <!-- Полоска загрузки -->
+        <div id="loadingContainer" class="loading-container">
+            <div id="loadingBar" class="loading-bar"></div>
+        </div>
+
+        <!-- Кнопка "ГОТОВО" -->
+        <button id="doneButton" onclick="finishInput()">Готово</button>
+
+        <!-- Список рецептов -->
+        <h2>Результаты поиска</h2>
+        <ul id="recipeList"></ul>
+
+        <!-- Контейнер для информации о блюде -->
+        <div id="recipeInfo" class="info-container">
+            <h3>Информация о блюде</h3>
+            <p><strong>Название:</strong> <span id="recipeName"></span></p>
+            <p><strong>Калории готового блюда:</strong> <span id="calories"></span></p>
+            <p><strong>Белки:</strong> <span id="proteins"></span></p>
+            <p><strong>Жиры:</strong> <span id="fats"></span></p>
+            <p><strong>Углеводы:</strong> <span id="carbs"></span></p>
+            <p><strong>Калорий на 100 г:</strong> <span id="calories100g"></span></p>
+            <a id="recipeLink" href="#" target="_blank">Перейти к рецепту</a>
+        </div>
+    </div>
+
+    <script>
+        let ingredients = new Set();
+
+        function addIngredient() {
+            const inputField = document.getElementById("ingredientInput");
+            const ingredient = inputField.value.trim().toLowerCase();
+            if (!ingredient) return;
+
+            fetch("/check-ingredient", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ ingredient: ingredient })
+            })
+            .then(response => response.json())
+            .then(data => {
+                const messageBox = document.getElementById("statusMessage");
+
+                if (data.status === "found") {
+                    ingredients.add(capitalize(data.ingredient));
+                    updateIngredientList();
+                    messageBox.textContent = "Продукт принят";
+                    messageBox.style.color = "green";
+                } else {
+                    messageBox.textContent = "Такого продукта нет в рецептах";
+                    messageBox.style.color = "red";
+                }
+
+                inputField.value = "";
+                inputField.focus();
+            });
+        }
+
+        function updateIngredientList() {
+            const ingredientList = document.getElementById("ingredientList");
+            ingredientList.innerHTML = "";
+            ingredients.forEach(ingredient => {
+                const li = document.createElement("li");
+                li.textContent = ingredient;
+                ingredientList.appendChild(li);
+            });
+        }
+
+        function finishInput() {
+            if (ingredients.size === 0) {
+                const messageBox = document.getElementById("statusMessage");
+                messageBox.textContent = "Пожалуйста, добавьте хотя бы один продукт перед поиском.";
+                messageBox.style.color = "red";
+                return;
+            }
+
+            showLoadingBar();
+
+            fetch("/get-recipes", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ ingredients: Array.from(ingredients) })
+            })
+            .then(response => response.json())
+            .then(data => {
+                const recipeList = document.getElementById("recipeList");
+                recipeList.innerHTML = "";
+
+                if (data.length === 0) {
+                    recipeList.innerHTML = "<p>Рецепты не найдены.</p>";
+                } else {
+                    data.forEach(recipe => {
+                        const li = document.createElement("li");
+                        li.innerHTML = `<a href="#">${recipe.name}</a> (${recipe.match_info})`;
+                        li.onclick = () => showRecipeInfo(recipe);
+                        recipeList.appendChild(li);
+                    });
+                }
+            })
+            .finally(() => {
+                hideLoadingBar();
+            });
+        }
+
+        function showRecipeInfo(recipe) {
+            const infoContainer = document.getElementById("recipeInfo");
+            infoContainer.style.display = "block";
+
+            document.getElementById("recipeName").textContent = recipe.name;
+            document.getElementById("calories").textContent = recipe.calories;
+            document.getElementById("proteins").textContent = recipe.proteins;
+            document.getElementById("fats").textContent = recipe.fats;
+            document.getElementById("carbs").textContent = recipe.carbs;
+            document.getElementById("calories100g").textContent = recipe.calories100g;
+
+            const recipeLink = document.getElementById("recipeLink");
+            recipeLink.href = recipe.url;
+        }
+
+        function capitalize(str) {
+            return str.charAt(0).toUpperCase() + str.slice(1);
+        }
+
+        function handleEnter(event) {
+            if (event.key === "Enter") {
+                addIngredient();
+            }
+        }
+
+        function changeTheme() {
+            const lightTheme = "/static/lightTheme.css";
+            const darkTheme = "/static/darkTheme.css";
+            const link = document.getElementById('themeStyle');
+            const currentTheme = link.getAttribute("href");
+
+            link.setAttribute("href", currentTheme === lightTheme ? darkTheme : lightTheme);
+
+            const infoContainer = document.querySelector('.info-container');
+            infoContainer.style.color = currentTheme === lightTheme ? "#ffffff" : "#333";
+        }
+
+        function showLoadingBar() {
+            const loadingContainer = document.getElementById("loadingContainer");
+            const loadingBar = document.getElementById("loadingBar");
+            loadingContainer.classList.add("active");
+            loadingBar.style.width = "0";
+
+            let width = 0;
+            const interval = setInterval(() => {
+                if (width >= 100) {
+                    clearInterval(interval);
+                } else {
+                    width += 10;
+                    loadingBar.style.width = `${width}%`;
+                }
+            }, 100);
+        }
+
+        function hideLoadingBar() {
+            const loadingContainer = document.getElementById("loadingContainer");
+            setTimeout(() => {
+                loadingContainer.classList.remove("active");
+            }, 500);
+        }
+    </script>
+</body>
+</html>
